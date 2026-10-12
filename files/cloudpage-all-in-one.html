@@ -1,0 +1,240 @@
+%%[
+/* =====================================================================
+   ASSET SENTINEL - CloudPage (Landing Page > HTML Paste)
+   Reads your status DE with AMPscript. Edit only the CONFIG block.
+   ===================================================================== */
+
+/* ---------- CONFIG ---------- */
+SET @deName        = "YOUR_STATUS_DE_NAME"
+SET @pageTitle     = "Asset Sentinel"
+SET @logoUrl       = "https://image.YOUR-STACK.sfmc-content.com/lib/XXXX/m/1/amgen-logo.png"
+SET @lookbackHours = 24
+SET @tzOffsetHours = 6          /* DE dates are CST (UTC-6). Used to send UTC to the browser. */
+
+/* Values stored in CurrentStatus */
+SET @activeValue   = "Active"
+SET @inactiveValue = "Inactive"
+
+/* DE column names (rename if yours differ) */
+SET @fKey      = "TriggeredSendID"
+SET @fEmailId  = "EmailID"
+SET @fModified = "LastModifiedDate"
+SET @fStatus   = "CurrentStatus"
+SET @fCampaign = "CampaignName"
+SET @fJourney  = "JourneyName"
+SET @fTactic   = "TacticID"
+SET @fName     = "EmailName"
+
+/* Access token: open page as ...?t=YOUR_SECRET  (set @requireToken to "N" to disable) */
+SET @requireToken = "Y"
+SET @secret       = "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+
+/* ---------- ACCESS CHECK ---------- */
+SET @denied = "N"
+IF @requireToken == "Y" AND RequestParameter("t") != @secret THEN
+  SET @denied = "Y"
+ENDIF
+
+/* ---------- PAGE TIMESTAMP (UTC ISO) ---------- */
+SET @utcNow     = DateAdd(Now(), @tzOffsetHours, "H")
+SET @updatedIso = Concat(FormatDate(@utcNow,"yyyy-MM-dd"),"T",FormatDate(@utcNow,"HH:mm:ss"),"Z")
+
+/* ---------- LOOKUP + BUILD JSON ---------- */
+SET @json  = "["
+SET @count = 0
+
+IF @denied != "Y" THEN
+  FOR @s = 1 TO 2 DO
+
+    IF @s == 1 THEN
+      SET @status = @activeValue
+      SET @action = "Activated"
+    ELSE
+      SET @status = @inactiveValue
+      SET @action = "Deactivated"
+    ENDIF
+
+    /* newest first; AMPscript lookups return at most 2,000 rows per call */
+    SET @rs = LookupOrderedRows(@deName, 0, Concat(@fModified," DESC"), @fStatus, @status)
+    SET @n  = RowCount(@rs)
+
+    FOR @i = 1 TO @n DO
+      SET @row = Row(@rs, @i)
+      SET @lm  = Field(@row, @fModified)
+
+      IF NOT Empty(@lm) AND DateDiff(@lm, Now(), "MI") <= Multiply(@lookbackHours, 60) THEN
+
+        /* JSON-escape: backslash, quote, line breaks, < */
+        SET @eName     = Replace(Replace(Replace(Replace(Replace(Field(@row,@fName),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eJourney  = Replace(Replace(Replace(Replace(Replace(Field(@row,@fJourney),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eTactic   = Replace(Replace(Replace(Replace(Replace(Field(@row,@fTactic),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eCampaign = Replace(Replace(Replace(Replace(Replace(Field(@row,@fCampaign),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eKey      = Replace(Replace(Replace(Replace(Replace(Field(@row,@fKey),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eEmailId  = Replace(Replace(Replace(Replace(Replace(Field(@row,@fEmailId),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+
+        SET @utc = DateAdd(@lm, @tzOffsetHours, "H")
+        SET @iso = Concat(FormatDate(@utc,"yyyy-MM-dd"),"T",FormatDate(@utc,"HH:mm:ss"),"Z")
+
+        IF @count > 0 THEN SET @json = Concat(@json, ",") ENDIF
+
+        SET @json = Concat(@json,
+          '{"EmailName":"', @eName,
+          '","Journey":"', @eJourney,
+          '","Tactic":"', @eTactic,
+          '","Action":"', @action,
+          '","ChangedAt":"', @iso,
+          '","Extra":{"Triggered Send ID":"', @eKey,
+          '","Email ID":"', @eEmailId,
+          '","Campaign":"', @eCampaign, '"}}')
+
+        SET @count = Add(@count, 1)
+      ENDIF
+    NEXT @i
+
+  NEXT @s
+ENDIF
+
+SET @json = Concat(@json, "]")
+]%%<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>%%=v(@pageTitle)=%%</title>
+<style>
+:root{--bg:#f2f7fc;--card:#fff;--tx:#0b1f33;--mut:#5b6f84;--line:#d6e3f0;--blue:#0063C3;--gr:#1d8f3f;--gbg:#e6f6ea;--rd:#d70015;--rbg:#fdebed;--nav:rgba(255,255,255,.8);--seg:#e3edf8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--card:#161618;--tx:#f5f5f7;--mut:#a1a1a6;--line:#2c2c2e;--blue:#2997ff;--gr:#30d158;--gbg:#0f2a17;--rd:#ff453a;--rbg:#2e1214;--nav:rgba(22,22,23,.72);--seg:#232326}}
+:root[data-theme="dark"]{--bg:#000;--card:#161618;--tx:#f5f5f7;--mut:#a1a1a6;--line:#2c2c2e;--blue:#2997ff;--gr:#30d158;--gbg:#0f2a17;--rd:#ff453a;--rbg:#2e1214;--nav:rgba(22,22,23,.72);--seg:#232326}
+*{box-sizing:border-box}
+html,body{margin:0;overflow-x:clip;background:var(--bg);color:var(--tx);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;display:flex;align-items:center;justify-content:space-between;height:52px;padding:0 max(20px,calc((100% - 980px)/2));background:var(--nav);backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);border-bottom:1px solid var(--line);font-size:14px}
+.brand{color:var(--blue);font-weight:700;letter-spacing:-.01em;display:flex;gap:8px;align-items:center}
+.nav-r{color:var(--mut);display:flex;gap:16px;align-items:center}
+.live{display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--gr);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(48,209,88,.5)}70%{box-shadow:0 0 0 8px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+.wrap{max-width:980px;margin:0 auto;padding:0 20px 80px}
+.hero{position:relative;overflow:hidden;text-align:center;margin:0 calc(50% - 50vw);padding:96px 20px 150px;background:linear-gradient(160deg,#0063C3 0%,#004a94 100%)}.hero::before{content:"";position:absolute;width:560px;height:560px;right:-120px;top:-200px;background:radial-gradient(circle,rgba(255,255,255,.24),transparent 65%);animation:drift 12s ease-in-out infinite alternate}.hero>*{position:relative}@keyframes drift{to{transform:translate(-90px,70px)}}
+.eyebrow{color:rgba(255,255,255,.8);font-weight:600;font-size:19px;margin:0 0 8px}
+h1{color:#fff;font-size:clamp(40px,7vw,72px);line-height:1.05;letter-spacing:-.03em;font-weight:700;margin:0}
+.sub{font-size:clamp(19px,2.4vw,26px);color:rgba(255,255,255,.86);margin:18px auto 0;max-width:640px;line-height:1.3;font-weight:500}
+.rv{opacity:0;transform:translateY(32px);transition:opacity .9s cubic-bezier(.16,1,.3,1),transform .9s cubic-bezier(.16,1,.3,1)}
+.rv.in{opacity:1;transform:none}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:-76px 0 56px;position:relative;z-index:2}
+.stat{background:var(--card);border-radius:22px;padding:28px 24px;transition:transform .4s cubic-bezier(.16,1,.3,1),box-shadow .4s}
+.stat:hover{transform:scale(1.02);box-shadow:0 12px 32px rgba(0,0,0,.1)}
+.stat b{display:block;color:var(--blue);font-size:clamp(36px,6vw,56px);letter-spacing:-.03em;font-weight:700;line-height:1}
+.stat span{color:var(--mut);font-size:15px;margin-top:8px;display:block}
+.tools{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin-bottom:20px}
+.seg{position:relative;display:grid;grid-template-columns:repeat(3,1fr);background:var(--seg);border-radius:10px;padding:3px;min-width:min(100%,330px)}
+.seg i{position:absolute;top:3px;bottom:3px;left:3px;width:calc((100% - 6px)/3);background:var(--card);border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.15);transition:transform .45s cubic-bezier(.16,1,.3,1)}
+.seg button{position:relative;z-index:1;background:none;border:0;padding:8px 10px;font-size:14px;font-weight:500;cursor:pointer;color:var(--mut);transition:color .3s}
+.seg button.on{color:var(--blue)}
+.search{flex:1;min-width:200px;max-width:320px;background:var(--seg);border:2px solid transparent;border-radius:10px;padding:9px 14px;font-size:15px;outline:0;transition:border-color .3s,background .3s}
+.search:focus{border-color:var(--blue);background:var(--card)}
+.list{display:flex;flex-direction:column;gap:12px}
+.row{background:var(--card);border-radius:20px;overflow:hidden;opacity:0;transform:translateY(20px);animation:up .7s cubic-bezier(.16,1,.3,1) forwards;transition:box-shadow .4s}
+.row:hover{box-shadow:0 8px 28px rgba(0,0,0,.09)}
+@keyframes up{to{opacity:1;transform:none}}
+.head{width:100%;display:grid;grid-template-columns:44px 1fr auto 24px;gap:16px;align-items:center;padding:18px 22px;background:none;border:0;text-align:left;cursor:pointer}
+.ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:20px;font-weight:700}
+.ico.a{background:var(--gbg);color:var(--gr)}.ico.d{background:var(--rbg);color:var(--rd)}
+.nm{font-size:17px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{font-size:14px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{font-size:13px;font-weight:600;padding:5px 12px;border-radius:99px}
+.pill.a{background:var(--gbg);color:var(--gr)}.pill.d{background:var(--rbg);color:var(--rd)}
+.chev{color:var(--mut);transition:transform .5s cubic-bezier(.16,1,.3,1)}
+.open .chev{transform:rotate(180deg)}
+.more{display:grid;grid-template-rows:0fr;transition:grid-template-rows .55s cubic-bezier(.16,1,.3,1)}
+.open .more{grid-template-rows:1fr}
+.more>div{overflow:hidden}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:18px 24px;padding:4px 22px 22px 82px;opacity:0;transform:translateY(-6px);transition:opacity .4s .1s,transform .5s .1s cubic-bezier(.16,1,.3,1)}
+.open .grid{opacity:1;transform:none}
+.grid small{display:block;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+.grid p{margin:0;font-size:15px;word-break:break-word}
+.empty{text-align:center;color:var(--mut);padding:64px 0;font-size:19px}
+.foot{text-align:center;color:var(--mut);font-size:13px;margin-top:40px}
+@media (max-width:640px){.stats{grid-template-columns:1fr}.head{grid-template-columns:40px 1fr 20px}.head .pill{display:none}.grid{padding-left:22px}.hero{padding-top:56px}}
+.row,.stat{border:1px solid var(--line)}.stat:hover{box-shadow:0 14px 36px rgba(0,99,195,.18)}
+.rf{background:var(--seg);border:0;border-radius:99px;padding:6px 14px;font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;transition:transform .3s,opacity .3s}.rf:active{transform:scale(.94)}.rf:disabled{opacity:.55;cursor:default}
+.sk{background:linear-gradient(90deg,var(--seg) 25%,var(--line) 50%,var(--seg) 75%);background-size:200% 100%;animation:shim 1.4s linear infinite;border-radius:10px}@keyframes shim{to{background-position:-200% 0}}
+.skr{display:grid;grid-template-columns:44px 1fr 120px;gap:16px;align-items:center;padding:18px 22px;animation:none;opacity:1;transform:none}.sk.ico{width:44px;height:44px;border-radius:12px}.l1{height:14px;width:55%;margin-bottom:10px}.l2{height:11px;width:80%}.l3{height:26px;border-radius:99px}
+.splash{position:fixed;inset:0;z-index:100;background:linear-gradient(160deg,#0063C3,#004a94);color:#fff;display:grid;place-items:center;text-align:center;transition:opacity .5s,visibility .5s}.splash.out{opacity:0;visibility:hidden}.splash svg{animation:pop 1.6s ease-in-out infinite}@keyframes pop{50%{transform:scale(1.12)}}.splash p{font-size:28px;font-weight:700;letter-spacing:-.02em;margin:18px 0 20px}.bar{width:180px;height:4px;border-radius:4px;background:rgba(255,255,255,.25);margin:0 auto 14px;overflow:hidden}.bar i{display:block;height:100%;background:#fff;border-radius:4px;animation:fill 1.5s cubic-bezier(.3,.7,.2,1) forwards;width:0}@keyframes fill{to{width:100%}}.splash small{opacity:.75;font-size:14px}
+.blogo{height:22px;width:auto;display:block}.vr{width:1px;height:20px;background:var(--line)}.lpill{background:#fff;border-radius:16px;padding:12px 20px;margin:0 auto 26px;display:inline-block}.lpill img{height:30px;width:auto;display:block}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rv,.row{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+%%[ IF @denied == "Y" THEN ]%%
+<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;text-align:center;padding:96px 20px;color:#0b1f33">
+  <h1 style="color:#0063C3">Access denied</h1>
+  <p>Please use the link provided by the Asset Sentinel administrator.</p>
+</div>
+%%[ ELSE ]%%
+<div id="root"></div>
+
+<script>
+window.__REPORT_DATA__  = %%=v(@json)=%%;
+window.__REPORT_META__  = {"logo":"%%=v(@logoUrl)=%%","updated":"%%=v(@updatedIso)=%%"};
+window.__REPORT_ERROR__ = "";
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+/* Asset Sentinel UI. Data comes from the CloudPage: window.__REPORT_DATA__, __REPORT_META__, __REPORT_ERROR__ */
+(function(){
+var h=React.createElement, useState=React.useState, useEffect=React.useEffect, useRef=React.useRef;
+var RAW=(window.__REPORT_DATA__||[]).slice().sort(function(a,b){return a.ChangedAt<b.ChangedAt?1:a.ChangedAt>b.ChangedAt?-1:0}),META=window.__REPORT_META__||{},ERR=window.__REPORT_ERROR__||"";
+
+var LOGO=META.logo||"";
+function useReveal(){var r=useRef();useEffect(function(){var el=r.current;if(!el)return;var io=new IntersectionObserver(function(e){if(e[0].isIntersecting){el.classList.add("in");io.disconnect()}},{threshold:.12});io.observe(el);return function(){io.disconnect()}},[]);return r}
+function Rv(p){var r=useReveal();return h("div",{ref:r,className:"rv "+(p.cls||""),style:{transitionDelay:(p.d||0)+"ms"}},p.children)}
+function useCount(n){var s=useState(0),v=s[0],set=s[1];useEffect(function(){var t0=null,id;function f(t){if(!t0)t0=t;var p=Math.min((t-t0)/900,1);set(Math.round(n*(1-Math.pow(1-p,3))));if(p<1)id=requestAnimationFrame(f)}id=requestAnimationFrame(f);return function(){cancelAnimationFrame(id)}},[n]);return v}
+function Stat(p){var v=useCount(p.n);return h(Rv,{cls:"stat",d:p.d},h("b",null,v),h("span",null,p.label))}
+function ago(iso){var m=Math.round((Date.now()-new Date(iso))/6e4);return m<60?m+"m ago":Math.round(m/60)+"h ago"}
+
+function Row(p){
+var r=p.r,s=useState(false),open=s[0],set=s[1],a=r.Action==="Activated",c=a?"a":"d",ex=r.Extra||{};
+var fields=[["Journey",r.Journey||"—"],["Tactic",r.Tactic||"—"],["Changed",new Date(r.ChangedAt).toLocaleString()]].concat(Object.keys(ex).map(function(k){return[k,ex[k]]}));
+return h("div",{className:"row"+(open?" open":""),style:{animationDelay:Math.min(p.i*60,600)+"ms"}},
+h("button",{className:"head",onClick:function(){set(!open)},"aria-expanded":open},
+h("div",{className:"ico "+c},a?"↑":"↓"),
+h("div",{style:{minWidth:0}},h("div",{className:"nm"},r.EmailName),h("div",{className:"meta"},(r.Journey||"—")+" · "+(r.Tactic||"—")+" · "+ago(r.ChangedAt))),
+h("span",{className:"pill "+c},a?"Inactive → Active":"Active → Inactive"),
+h("svg",{className:"chev",width:16,height:16,viewBox:"0 0 16 16",fill:"none",stroke:"currentColor",strokeWidth:2,strokeLinecap:"round"},h("path",{d:"M3 6l5 5 5-5"}))),
+h("div",{className:"more"},h("div",null,h("div",{className:"grid"},fields.map(function(f){return h("div",{key:f[0]},h("small",null,f[0]),h("p",null,f[1]))})))));
+}
+
+function Logo(p){return h("svg",{width:p.s,height:p.s,viewBox:"0 0 24 24"},h("path",{d:"M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5l8-3z",fill:p.f}),h("path",{d:"M8.5 12l2.5 2.5 4.5-5",stroke:p.c,strokeWidth:2,fill:"none",strokeLinecap:"round",strokeLinejoin:"round"}))}
+function Skel(){return h("div",{className:"list"},[0,1,2,3].map(function(i){return h("div",{key:i,className:"row skr"},h("div",{className:"sk ico"}),h("div",null,h("div",{className:"sk l1"}),h("div",{className:"sk l2"})),h("div",{className:"sk l3"}))}))}
+function Splash(p){return h("div",{className:"splash"+(p.out?" out":"")},h("div",null,LOGO?h("div",{className:"lpill"},h("img",{src:LOGO,alt:"Amgen"})):null,h(Logo,{s:72,f:"#fff",c:"#0063C3"}),h("p",null,"Asset Sentinel"),h("div",{className:"bar"},h("i")),h("small",null,"Scanning asset status changes…")))}
+function App(){
+var f=useState("All"),flt=f[0],setF=f[1],q=useState(""),qs=q[0],setQ=q[1],b=useState(true),boot=b[0],setBoot=b[1],y=useState(true),busy=y[0],setBusy=y[1];
+useEffect(function(){var t=setTimeout(function(){setBusy(false)},1500),t2=setTimeout(function(){setBoot(false)},2100);return function(){clearTimeout(t);clearTimeout(t2)}},[]);
+function refresh(){setBusy(true);location.reload()}
+var tabs=["All","Activated","Deactivated"];
+var act=RAW.filter(function(r){return r.Action==="Activated"}).length;
+var rows=RAW.filter(function(r){return(flt==="All"||r.Action===flt)&&(r.EmailName+r.Journey+r.Tactic).toLowerCase().indexOf(qs.toLowerCase())>-1});
+return h("div",null,
+boot&&h(Splash,{out:!busy}),
+h("nav",null,h("div",{className:"brand"},LOGO?h("img",{src:LOGO,alt:"Amgen",className:"blogo"}):null,LOGO?h("span",{className:"vr"}):null,h(Logo,{s:22,f:"#0063C3",c:"#fff"}),"Asset Sentinel"),h("div",{className:"nav-r"},h("button",{className:"rf",onClick:refresh,disabled:busy},busy?"Refreshing…":"Refresh"),h("span",{className:"live"},h("span",{className:"dot"}),"Last 24 hours"+(META.updated?" \u00b7 Updated "+new Date(META.updated).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"")))),
+h("div",{className:"wrap"},
+h("div",{className:"hero"},
+h(Rv,null,h("p",{className:"eyebrow"},"Asset Sentinel")),
+h(Rv,{d:100},h("h1",null,"Every status change.",h("br"),"Always in sight.")),
+h(Rv,{d:200},h("p",{className:"sub"},"Emails that switched between active and inactive in the last 24 hours, with the journey and tactic behind each one."))),
+h("div",{className:"stats"},busy?[0,1,2].map(function(i){return h("div",{key:i,className:"stat sk",style:{height:118}})}):[h(Stat,{key:1,n:RAW.length,label:"Total changes",d:0}),h(Stat,{key:2,n:act,label:"Activated",d:120}),h(Stat,{key:3,n:RAW.length-act,label:"Deactivated",d:240})]),
+h(Rv,{cls:"tools"},
+h("div",{className:"seg"},h("i",{style:{transform:"translateX("+tabs.indexOf(flt)*100+"%)"}}),tabs.map(function(t){return h("button",{key:t,className:t===flt?"on":"",onClick:function(){setF(t)}},t)})),
+h("input",{className:"search",placeholder:"Search email, journey, tactic",value:qs,onChange:function(e){setQ(e.target.value)}})),
+busy?h(Skel):rows.length?h("div",{className:"list",key:flt+qs},rows.map(function(r,i){return h(Row,{key:r.EmailName+r.ChangedAt,r:r,i:i})})):h("div",{className:"empty"},ERR?"We could not load the report. Please refresh or contact the admin.":RAW.length?"No changes match your filters.":"No status changes in the last 24 hours."),
+h("div",{className:"foot"},"Showing "+rows.length+" of "+RAW.length+" changes")));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+})();
+</script>
+%%[ ENDIF ]%%
+</body>
+</html>
