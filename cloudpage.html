@@ -1,0 +1,129 @@
+%%[
+/* =====================================================================
+   ASSET SENTINEL - CloudPage (Landing Page > HTML Paste)
+   Reads your status DE with AMPscript. Edit only the CONFIG block.
+   ===================================================================== */
+
+/* ---------- CONFIG ---------- */
+SET @deName        = "YOUR_STATUS_DE_NAME"
+SET @pageTitle     = "Asset Sentinel"
+SET @logoUrl       = "https://image.YOUR-STACK.sfmc-content.com/lib/XXXX/m/1/amgen-logo.png"
+SET @lookbackHours = 24
+SET @tzOffsetHours = 6          /* DE dates are CST (UTC-6). Used to send UTC to the browser. */
+
+/* Values stored in CurrentStatus */
+SET @activeValue   = "Active"
+SET @inactiveValue = "Inactive"
+
+/* DE column names (rename if yours differ) */
+SET @fKey      = "TriggeredSendID"
+SET @fEmailId  = "EmailID"
+SET @fModified = "LastModifiedDate"
+SET @fStatus   = "CurrentStatus"
+SET @fCampaign = "CampaignName"
+SET @fJourney  = "JourneyName"
+SET @fTactic   = "TacticID"
+SET @fName     = "EmailName"
+
+/* Access token: open page as ...?t=YOUR_SECRET  (set @requireToken to "N" to disable) */
+SET @requireToken = "Y"
+SET @secret       = "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+SET @cssUrl = "https://image.YOUR-STACK.sfmc-content.com/lib/XXXX/m/1/asset-sentinel.css"
+SET @jsUrl  = "https://image.YOUR-STACK.sfmc-content.com/lib/XXXX/m/1/asset-sentinel.js"
+
+/* ---------- ACCESS CHECK ---------- */
+SET @denied = "N"
+IF @requireToken == "Y" AND RequestParameter("t") != @secret THEN
+  SET @denied = "Y"
+ENDIF
+
+/* ---------- PAGE TIMESTAMP (UTC ISO) ---------- */
+SET @utcNow     = DateAdd(Now(), @tzOffsetHours, "H")
+SET @updatedIso = Concat(FormatDate(@utcNow,"yyyy-MM-dd"),"T",FormatDate(@utcNow,"HH:mm:ss"),"Z")
+
+/* ---------- LOOKUP + BUILD JSON ---------- */
+SET @json  = "["
+SET @count = 0
+
+IF @denied != "Y" THEN
+  FOR @s = 1 TO 2 DO
+
+    IF @s == 1 THEN
+      SET @status = @activeValue
+      SET @action = "Activated"
+    ELSE
+      SET @status = @inactiveValue
+      SET @action = "Deactivated"
+    ENDIF
+
+    /* newest first; AMPscript lookups return at most 2,000 rows per call */
+    SET @rs = LookupOrderedRows(@deName, 0, Concat(@fModified," DESC"), @fStatus, @status)
+    SET @n  = RowCount(@rs)
+
+    FOR @i = 1 TO @n DO
+      SET @row = Row(@rs, @i)
+      SET @lm  = Field(@row, @fModified)
+
+      IF NOT Empty(@lm) AND DateDiff(@lm, Now(), "MI") <= Multiply(@lookbackHours, 60) THEN
+
+        /* JSON-escape: backslash, quote, line breaks, < */
+        SET @eName     = Replace(Replace(Replace(Replace(Replace(Field(@row,@fName),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eJourney  = Replace(Replace(Replace(Replace(Replace(Field(@row,@fJourney),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eTactic   = Replace(Replace(Replace(Replace(Replace(Field(@row,@fTactic),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eCampaign = Replace(Replace(Replace(Replace(Replace(Field(@row,@fCampaign),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eKey      = Replace(Replace(Replace(Replace(Replace(Field(@row,@fKey),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eEmailId  = Replace(Replace(Replace(Replace(Replace(Field(@row,@fEmailId),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+
+        SET @utc = DateAdd(@lm, @tzOffsetHours, "H")
+        SET @iso = Concat(FormatDate(@utc,"yyyy-MM-dd"),"T",FormatDate(@utc,"HH:mm:ss"),"Z")
+
+        IF @count > 0 THEN SET @json = Concat(@json, ",") ENDIF
+
+        SET @json = Concat(@json,
+          '{"EmailName":"', @eName,
+          '","Journey":"', @eJourney,
+          '","Tactic":"', @eTactic,
+          '","Action":"', @action,
+          '","ChangedAt":"', @iso,
+          '","Extra":{"Triggered Send ID":"', @eKey,
+          '","Email ID":"', @eEmailId,
+          '","Campaign":"', @eCampaign, '"}}')
+
+        SET @count = Add(@count, 1)
+      ENDIF
+    NEXT @i
+
+  NEXT @s
+ENDIF
+
+SET @json = Concat(@json, "]")
+]%%<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>%%=v(@pageTitle)=%%</title>
+%%[ IF @denied != "Y" THEN ]%%
+<link rel="stylesheet" href="%%=v(@cssUrl)=%%">
+%%[ ENDIF ]%%
+</head>
+<body>
+%%[ IF @denied == "Y" THEN ]%%
+<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;text-align:center;padding:96px 20px;color:#0b1f33">
+  <h1 style="color:#0063C3">Access denied</h1>
+  <p>Please use the link provided by the Asset Sentinel administrator.</p>
+</div>
+%%[ ELSE ]%%
+<div id="root"></div>
+
+<script>
+window.__REPORT_DATA__  = %%=v(@json)=%%;
+window.__REPORT_META__  = {"logo":"%%=v(@logoUrl)=%%","updated":"%%=v(@updatedIso)=%%"};
+window.__REPORT_ERROR__ = "";
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="%%=v(@jsUrl)=%%"></script>
+%%[ ENDIF ]%%
+</body>
+</html>
