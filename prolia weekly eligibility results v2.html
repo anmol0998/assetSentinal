@@ -1,0 +1,117 @@
+<script runat="server">
+Platform.Load("Core", "1.1.1");
+
+var DE_KEY = "Prolia_Weekly_Counts";
+var ANALYSIS_STATUS = "In Progress";
+
+function esc(v) {
+  if (v === null || v === undefined) { return ""; }
+  var s = "" + v;
+  s = s.split("&").join("&amp;");
+  s = s.split("<").join("&lt;");
+  s = s.split(">").join("&gt;");
+  s = s.split('"').join("&quot;");
+  return s;
+}
+
+var out = "";
+try {
+  var data = DataExtension.Init(DE_KEY).Rows.Retrieve();
+  var list = [];
+  var latest = -1;
+
+  for (var i = 0; i < data.length; i++) {
+    var wk = parseInt(data[i]["WeekNumber"], 10);
+    if (isNaN(wk)) { wk = -1; }
+    if (wk > latest) { latest = wk; }
+    list.push({
+      wk: wk,
+      week: data[i]["WeekNumber"],
+      cont: data[i]["ContinuingEligible"],
+      newly: data[i]["NewlyEligible"],
+      re: data[i]["ReenteredOrNewCycle"],
+      ex: data[i]["Exited"],
+      close: data[i]["ClosingEligiblePopulation"],
+      created: data[i]["CreatedDate"]
+    });
+  }
+
+  list.sort(function (a, b) { return a.wk - b.wk; });
+
+  if (list.length == 0) {
+    out = '<div class="empty">No weekly records yet.</div>';
+  } else {
+    var rowsHtml = "";
+    for (var j = 0; j < list.length; j++) {
+      var x = list[j];
+      var cur = (x.wk == latest);
+      rowsHtml += '<tr' + (cur ? ' class="current"' : '') + '>';
+      rowsHtml += '<td class="marker">' + (cur ? '<span class="arrow">&#10140;</span>' : '') + '</td>';
+      rowsHtml += '<td class="wk">' + esc(x.week) + (cur ? '<span class="pill">This week</span>' : '') + '</td>';
+      rowsHtml += '<td class="num">' + esc(x.cont) + '</td>';
+      rowsHtml += '<td class="num">' + esc(x.newly) + '</td>';
+      rowsHtml += '<td class="num">' + esc(x.re) + '</td>';
+      rowsHtml += '<td class="num">' + esc(x.ex) + '</td>';
+      rowsHtml += '<td class="num strong">' + esc(x.close) + '</td>';
+      rowsHtml += '<td class="date">' + esc(x.created) + '</td>';
+      rowsHtml += '</tr>';
+    }
+    out = '<div class="scroll"><table><thead><tr>' +
+      '<th class="marker"></th><th class="l">Week</th><th>Continuing eligible</th><th>Newly eligible</th>' +
+      '<th>Re-entered / new cycle</th><th>Exited</th><th>Closing eligible population</th><th class="l">Created</th>' +
+      '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+  }
+} catch (e) {
+  out = '<div class="error">Could not load data: ' + esc(e.message ? e.message : e) + '</div>';
+}
+
+Variable.SetValue("@tableHtml", out);
+Variable.SetValue("@statusText", ANALYSIS_STATUS);
+</script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prolia Weekly Eligibility Results</title>
+<style>
+:root{--bg:#f5f5f7;--surface:#ffffff;--text:#1d1d1f;--muted:#6e6e73;--line:#e5e5ea;--head:#fafafa;--green:#248a3d;--green-bg:#eaf6ee;--amber:#9a6700;--amber-bg:#fff4d6}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--surface:#2c2c2e;--text:#f5f5f7;--muted:#a1a1a6;--line:#3a3a3c;--head:#323234;--green:#30d158;--green-bg:#1f3a29;--amber:#ffd60a;--amber-bg:#3d3414}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.45}
+.wrap{max-width:1040px;margin:0 auto;padding:48px 20px 64px}
+h1{margin:0 0 12px;font-size:28px;font-weight:600;letter-spacing:-0.02em}
+.status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:28px}
+.status b{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--amber);background:var(--amber-bg);padding:3px 10px;border-radius:999px}
+.status b:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:780px}
+th{background:var(--head);text-align:right;font-weight:500;font-size:12.5px;color:var(--muted);padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+th.l,td.wk,td.date{text-align:left}
+td{padding:14px 16px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+td.num{text-align:right}
+td.strong{font-weight:600}
+td.date{color:var(--muted);white-space:nowrap}
+td.marker,th.marker{width:44px;padding-right:0;text-align:center}
+tr.current{background:var(--green-bg)}
+tr.current td.wk{font-weight:600}
+.arrow{display:inline-block;color:var(--green);font-size:18px;line-height:1;animation:nudge 1.6s ease-in-out infinite}
+@keyframes nudge{0%,100%{transform:translateX(0);opacity:1}50%{transform:translateX(4px);opacity:.75}}
+.pill{margin-left:10px;font-size:11.5px;font-weight:500;color:var(--green);border:1px solid var(--green);border-radius:999px;padding:1px 8px}
+.empty,.error{padding:40px 20px;text-align:center;color:var(--muted)}
+.error{color:#d70015}
+footer{margin-top:14px;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){.arrow{animation:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Prolia Weekly Eligibility Results</h1>
+  <div class="status">Analysis status <b>%%=v(@statusText)=%%</b></div>
+  <main class="card">%%=v(@tableHtml)=%%</main>
+  <footer>Source: Prolia_Weekly_Counts. The arrow marks the latest week.</footer>
+</div>
+</body>
+</html>
