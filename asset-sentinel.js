@@ -22,7 +22,7 @@ var fields=[["Journey",r.Journey||"—"],["Tactic",r.Tactic||"—"],["Business U
 return h("div",{className:"row"+(open?" open":""),style:{animationDelay:Math.min(p.i*60,600)+"ms"}},
 h("button",{className:"head",onClick:function(){set(!open)},"aria-expanded":open},
 h("div",{className:"ico "+c},a?"↑":"↓"),
-h("div",{style:{minWidth:0}},h("div",{className:"nm"},r.EmailName),h("div",{className:"meta"},r.BU?h("span",{className:"tag "+String(r.BU).toLowerCase()},r.BU):null,(r.Journey||"—")+" · "+(r.Tactic||"—")+" · "+ago(r.ChangedAt,p.now))),
+h("div",{style:{minWidth:0}},h("div",{className:"nm"},r.EmailName),h("div",{className:"meta"},r.BU?h("span",{className:"tag "+(String(r.BU).toUpperCase().indexOf("DTC")>-1?"dtc":"hcp")},r.BU):null,(r.Journey||"—")+" · "+(r.Tactic||"—")+" · "+ago(r.ChangedAt,p.now))),
 h("span",{className:"pill "+c},a?"Inactive → Active":"Active → Inactive"),
 h("svg",{className:"chev",width:16,height:16,viewBox:"0 0 16 16",fill:"none",stroke:"currentColor",strokeWidth:2,strokeLinecap:"round"},h("path",{d:"M3 6l5 5 5-5"}))),
 h("div",{className:"more"},h("div",null,h("div",{className:"grid"},fields.map(function(f){return h("div",{key:f[0]},h("small",null,f[0]),h("p",null,f[1]))})))));
@@ -37,7 +37,7 @@ useEffect(function(){var t=setTimeout(function(){setBusy(false)},1500),t2=setTim
 useEffect(function(){var id=setInterval(function(){setNow(Date.now())},60000);return function(){clearInterval(id)}},[]);
 function refresh(){setBusy(true);location.reload()}
 var tabs=["All","Activated","Deactivated"],BUS=["HCP","DTC","Both"];
-var scoped=RAW.filter(function(r){return bu==="Both"||String(r.BU||"").toUpperCase()===bu});
+var scoped=RAW.filter(function(r){return bu==="Both"||String(r.BU||"").toUpperCase().indexOf(bu)>-1});
 var act=scoped.filter(function(r){return r.Action==="Activated"}).length;
 var rows=scoped.filter(function(r){return(flt==="All"||r.Action===flt)&&(r.EmailName+r.Journey+r.Tactic+(r.BU||"")).toLowerCase().indexOf(qs.toLowerCase())>-1});
 return h("div",null,
