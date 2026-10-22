@@ -8,7 +8,6 @@
 SET @deName        = "YOUR_STATUS_DE_NAME"
 SET @pageTitle     = "Asset Sentinel"
 SET @logoUrl       = "https://image.YOUR-STACK.sfmc-content.com/lib/XXXX/m/1/amgen-logo.png"
-SET @lookbackHours = 24
 SET @tzOffsetHours = 6          /* DE dates are CST (UTC-6). Used to send UTC to the browser. */
 
 /* Values stored in CurrentStatus */
@@ -24,6 +23,7 @@ SET @fCampaign = "CampaignName"
 SET @fJourney  = "JourneyName"
 SET @fTactic   = "TacticID"
 SET @fName     = "EmailName"
+SET @fBU       = "BU"          /* values: HCP or DTC */
 
 /* Access token: open page as ...?t=YOUR_SECRET  (set @requireToken to "N" to disable) */
 SET @requireToken = "Y"
@@ -64,7 +64,7 @@ IF @denied != "Y" THEN
       SET @row = Row(@rs, @i)
       SET @lm  = Field(@row, @fModified)
 
-      IF NOT Empty(@lm) AND DateDiff(@lm, Now(), "MI") <= Multiply(@lookbackHours, 60) THEN
+      /* every record in the DE is returned (no date filter) */
 
         /* JSON-escape: backslash, quote, line breaks, < */
         SET @eName     = Replace(Replace(Replace(Replace(Replace(Field(@row,@fName),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
@@ -72,10 +72,15 @@ IF @denied != "Y" THEN
         SET @eTactic   = Replace(Replace(Replace(Replace(Replace(Field(@row,@fTactic),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
         SET @eCampaign = Replace(Replace(Replace(Replace(Replace(Field(@row,@fCampaign),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
         SET @eKey      = Replace(Replace(Replace(Replace(Replace(Field(@row,@fKey),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
+        SET @eBU       = Replace(Replace(Replace(Replace(Replace(Uppercase(Trim(Field(@row,@fBU))),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
         SET @eEmailId  = Replace(Replace(Replace(Replace(Replace(Field(@row,@fEmailId),"\","\\"),'"','\"'),Char(13)," "),Char(10)," "),"<","\u003c")
 
-        SET @utc = DateAdd(@lm, @tzOffsetHours, "H")
-        SET @iso = Concat(FormatDate(@utc,"yyyy-MM-dd"),"T",FormatDate(@utc,"HH:mm:ss"),"Z")
+        IF NOT Empty(@lm) THEN
+          SET @utc = DateAdd(@lm, @tzOffsetHours, "H")
+          SET @iso = Concat(FormatDate(@utc,"yyyy-MM-dd"),"T",FormatDate(@utc,"HH:mm:ss"),"Z")
+        ELSE
+          SET @iso = ""
+        ENDIF
 
         IF @count > 0 THEN SET @json = Concat(@json, ",") ENDIF
 
@@ -83,6 +88,7 @@ IF @denied != "Y" THEN
           '{"EmailName":"', @eName,
           '","Journey":"', @eJourney,
           '","Tactic":"', @eTactic,
+          '","BU":"', @eBU,
           '","Action":"', @action,
           '","ChangedAt":"', @iso,
           '","Extra":{"Triggered Send ID":"', @eKey,
@@ -90,7 +96,6 @@ IF @denied != "Y" THEN
           '","Campaign":"', @eCampaign, '"}}')
 
         SET @count = Add(@count, 1)
-      ENDIF
     NEXT @i
 
   NEXT @s
