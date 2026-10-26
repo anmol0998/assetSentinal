@@ -1,0 +1,226 @@
+<script runat="server">
+Platform.Load("Core", "1.1.1");
+
+// ---- CONFIG ----
+var REPORT_DE = "Prolia_Weekly_Counts";        // External Key of the report DE
+var ACCESS_DE = "Prolia_Report_Access";        // External Key of the access DE (field: Email)
+var ACCESS_FIELD = "Email";
+var ANALYSIS_STATUS = "In Progress";
+// ----------------
+
+function esc(v) {
+  if (v === null || v === undefined) { return ""; }
+  var s = "" + v;
+  s = s.split("&").join("&amp;");
+  s = s.split("<").join("&lt;");
+  s = s.split(">").join("&gt;");
+  s = s.split('"').join("&quot;");
+  return s;
+}
+
+function buildReport() {
+  var out = "";
+  try {
+    var data = DataExtension.Init(REPORT_DE).Rows.Retrieve();
+    var list = [];
+    var latest = -1;
+    for (var i = 0; i < data.length; i++) {
+      var wk = parseInt(data[i]["WeekNumber"], 10);
+      if (isNaN(wk)) { wk = -1; }
+      if (wk > latest) { latest = wk; }
+      list.push({
+        wk: wk,
+        week: data[i]["WeekNumber"],
+        cont: data[i]["ContinuingEligible"],
+        newly: data[i]["NewlyEligible"],
+        re: data[i]["ReenteredOrNewCycle"],
+        ex: data[i]["Exited"],
+        close: data[i]["ClosingEligiblePopulation"],
+        created: data[i]["CreatedDate"]
+      });
+    }
+    list.sort(function (a, b) { return a.wk - b.wk; });
+
+    if (list.length == 0) {
+      out = '<div class="empty">No weekly records yet.</div>';
+    } else {
+      var rowsHtml = "";
+      for (var j = 0; j < list.length; j++) {
+        var x = list[j];
+        var cur = (x.wk == latest);
+        rowsHtml += '<tr' + (cur ? ' class="current"' : '') + '>';
+        rowsHtml += '<td class="marker">' + (cur ? '<span class="arrow">&#10140;</span>' : '') + '</td>';
+        rowsHtml += '<td class="wk">' + esc(x.week) + (cur ? '<span class="pill">This week</span>' : '') + '</td>';
+        rowsHtml += '<td class="num">' + esc(x.cont) + '</td>';
+        rowsHtml += '<td class="num">' + esc(x.newly) + '</td>';
+        rowsHtml += '<td class="num">' + esc(x.re) + '</td>';
+        rowsHtml += '<td class="num">' + esc(x.ex) + '</td>';
+        rowsHtml += '<td class="num strong">' + esc(x.close) + '</td>';
+        rowsHtml += '<td class="date">' + esc(x.created) + '</td>';
+        rowsHtml += '</tr>';
+      }
+      out = '<div class="scroll"><table><thead><tr>' +
+        '<th class="marker"></th><th class="l">Week</th><th>Continuing eligible</th><th>Newly eligible</th>' +
+        '<th>Re-entered / new cycle</th><th>Exited</th><th>Closing eligible population</th><th class="l">Created</th>' +
+        '</tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+    }
+  } catch (e) {
+    out = '<div class="error">Could not load data: ' + esc(e.message ? e.message : e) + '</div>';
+  }
+  return out;
+}
+
+function buildLogin(errorText) {
+  var h = '<div class="login">' +
+    '<h2>Sign in</h2>' +
+    '<p class="sub">Enter your work email to view this report.</p>' +
+    '<form id="loginForm" method="post" action="" autocomplete="off">' +
+    '<label for="email">Email</label>' +
+    '<input id="email" name="email" type="email" required maxlength="254" placeholder="name@company.com" autofocus>' +
+    (errorText ? '<div class="msg" role="alert">' + esc(errorText) + '</div>' : '') +
+    '<button type="submit">Continue</button>' +
+    '</form></div>';
+  return h;
+}
+
+// ---- Access check (server-side; report is only built if this passes) ----
+var authorized = false;
+var errorText = "";
+
+try {
+  if (Request.Method == "POST") {
+    var raw = Request.GetFormField("email");
+    var email = (raw ? ("" + raw) : "").replace(/^\s+|\s+$/g, "").toLowerCase();
+    var valid = (email.length > 3 && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+
+    if (!valid) {
+      errorText = "Please enter a valid email address.";
+    } else {
+      var found = Platform.Function.Lookup(ACCESS_DE, ACCESS_FIELD, ACCESS_FIELD, email);
+      if (found && ("" + found).toLowerCase() == email) {
+        authorized = true;
+      } else {
+        errorText = "You don't have access to this report. Please reach out to Vinod or Anmol from MCRM for access.";
+      }
+    }
+  }
+} catch (e) {
+  authorized = false;
+  errorText = "Unable to verify access right now. Please try again later.";
+}
+
+var bodyHtml = "";
+if (authorized) {
+  bodyHtml = '<div id="loader" class="loader" role="status" aria-live="polite">' +
+               '<div class="spinner"></div>' +
+               '<div class="ltitle" id="ltitle">Access verified</div>' +
+               '<div class="lsub" id="lsub">Preparing your report&hellip;</div>' +
+               '<div class="bar"><span></span></div>' +
+             '</div>' +
+             '<div id="report" class="hidden">' +
+               '<div class="status">Analysis status <b>' + esc(ANALYSIS_STATUS) + '</b></div>' +
+               '<main class="card">' + buildReport() + '</main>' +
+               '<footer>Source: ' + esc(REPORT_DE) + '. The arrow marks the latest week.</footer>' +
+             '</div>';
+} else {
+  bodyHtml = '<main class="card">' + buildLogin(errorText) + '</main>';
+}
+
+Variable.SetValue("@bodyHtml", bodyHtml);
+</script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Prolia Weekly Eligibility Results</title>
+<style>
+:root{--bg:#f5f5f7;--surface:#ffffff;--text:#1d1d1f;--muted:#6e6e73;--line:#e5e5ea;--head:#fafafa;--green:#248a3d;--green-bg:#eaf6ee;--amber:#9a6700;--amber-bg:#fff4d6;--accent:#0071e3;--danger:#d70015;--danger-bg:#fdecee}
+@media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--surface:#2c2c2e;--text:#f5f5f7;--muted:#a1a1a6;--line:#3a3a3c;--head:#323234;--green:#30d158;--green-bg:#1f3a29;--amber:#ffd60a;--amber-bg:#3d3414;--accent:#0a84ff;--danger:#ff6961;--danger-bg:#3d1f21}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue","Segoe UI",Arial,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.45}
+.wrap{max-width:1040px;margin:0 auto;padding:48px 20px 64px}
+h1{margin:0 0 12px;font-size:28px;font-weight:600;letter-spacing:-0.02em}
+.status{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-bottom:28px}
+.status b{display:inline-flex;align-items:center;gap:6px;font-weight:500;color:var(--amber);background:var(--amber-bg);padding:3px 10px;border-radius:999px}
+.status b:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);overflow:hidden}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px;min-width:780px}
+th{background:var(--head);text-align:right;font-weight:500;font-size:12.5px;color:var(--muted);padding:12px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+th.l,td.wk,td.date{text-align:left}
+td{padding:14px 16px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+td.num{text-align:right}
+td.strong{font-weight:600}
+td.date{color:var(--muted);white-space:nowrap}
+td.marker,th.marker{width:44px;padding-right:0;text-align:center}
+tr.current{background:var(--green-bg)}
+tr.current td.wk{font-weight:600}
+.arrow{display:inline-block;color:var(--green);font-size:18px;line-height:1;animation:nudge 1.6s ease-in-out infinite}
+@keyframes nudge{0%,100%{transform:translateX(0);opacity:1}50%{transform:translateX(4px);opacity:.75}}
+.pill{margin-left:10px;font-size:11.5px;font-weight:500;color:var(--green);border:1px solid var(--green);border-radius:999px;padding:1px 8px}
+.empty,.error{padding:40px 20px;text-align:center;color:var(--muted)}
+.error{color:var(--danger)}
+footer{margin-top:14px;font-size:12.5px;color:var(--muted)}
+.login{max-width:380px;margin:0 auto;padding:36px 28px 32px}
+.login h2{margin:0 0 4px;font-size:20px;font-weight:600;letter-spacing:-0.01em}
+.login .sub{margin:0 0 22px;font-size:14px;color:var(--muted)}
+.login label{display:block;font-size:12.5px;font-weight:500;color:var(--muted);margin-bottom:6px}
+.login input{width:100%;font:inherit;font-size:15px;color:var(--text);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;outline:none}
+.login input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(10,132,255,.2)}
+.login .msg{margin-top:12px;font-size:13px;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:9px 12px}
+.login button{width:100%;margin-top:18px;font:inherit;font-size:15px;font-weight:500;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:10px 12px;cursor:pointer}
+.login button:hover{filter:brightness(1.06)}
+.login button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:42px}
+.login button:disabled{opacity:.75;cursor:default}
+.btnspin{width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+.loader{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:320px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.04);padding:40px 20px}
+.loader.out{opacity:0;transition:opacity .3s ease}
+.spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:20px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ltitle{font-size:17px;font-weight:600}
+.lsub{margin-top:4px;font-size:13.5px;color:var(--muted)}
+.bar{width:200px;height:4px;border-radius:999px;background:var(--line);margin-top:22px;overflow:hidden}
+.bar span{display:block;height:100%;width:0;background:var(--accent);border-radius:999px;animation:fill 1.8s ease forwards}
+@keyframes fill{to{width:100%}}
+.hidden{display:none}
+#report.show{display:block;animation:rise .4s ease}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.arrow,.spinner,.btnspin,.bar span,#report.show{animation:none}.bar span{width:100%}}
+</style>
+<noscript><style>#loader{display:none}#report.hidden{display:block}</style></noscript>
+</head>
+<body>
+<div class="wrap">
+  <h1>Prolia Weekly Eligibility Results</h1>
+  %%=v(@bodyHtml)=%%
+</div>
+<script>
+(function () {
+  var form = document.getElementById("loginForm");
+  if (form) {
+    form.addEventListener("submit", function () {
+      var b = form.querySelector("button");
+      if (b) { b.disabled = true; b.innerHTML = '<span class="btnspin"></span>Verifying'; }
+    });
+  }
+  var loader = document.getElementById("loader");
+  var report = document.getElementById("report");
+  if (loader && report) {
+    var sub = document.getElementById("lsub");
+    setTimeout(function () { if (sub) { sub.innerHTML = "Loading latest weekly counts&hellip;"; } }, 900);
+    setTimeout(function () {
+      loader.classList.add("out");
+      setTimeout(function () {
+        loader.style.display = "none";
+        report.classList.remove("hidden");
+        report.classList.add("show");
+      }, 300);
+    }, 1900);
+  }
+})();
+</script>
+</body>
+</html>
