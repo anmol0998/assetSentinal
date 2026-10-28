@@ -1,7 +1,15 @@
+%%[
+/* Hash is computed in AMPscript; the plain password is never stored or compared */
+SET @pw = RequestParameter("password")
+SET @em = Lowercase(Trim(RequestParameter("email")))
+SET @salt = "CHANGE_THIS_TO_A_LONG_RANDOM_SECRET"
+SET @pwHash = Lowercase(SHA256(Concat(@em, ":", @pw, ":", @salt), "UTF-8"))
+]%%
 <script runat="server">
 Platform.Load("Core", "1.1.1");
 
 // ---- CONFIG ----
+var PASSWORD_FIELD = "PasswordHash";           // field in the access DE holding the hash
 var REPORT_DE = "Prolia_Weekly_Counts";        // External Key of the report DE
 var ACCESS_DE = "Prolia_Report_Access";        // External Key of the access DE (field: Email)
 var ACCESS_FIELD = "Email";
@@ -73,10 +81,18 @@ function buildReport() {
 function buildLogin(errorText) {
   var h = '<div class="login">' +
     '<h2>Sign in</h2>' +
-    '<p class="sub">Enter your work email to view this report.</p>' +
+    '<p class="sub">Enter your email and password to view this report.</p>' +
     '<form id="loginForm" method="post" action="" autocomplete="off">' +
     '<label for="email">Email</label>' +
     '<input id="email" name="email" type="email" required maxlength="254" placeholder="name@company.com" autofocus>' +
+    '<label for="password" style="margin-top:14px">Password</label>' +
+    '<div class="pwwrap">' +
+      '<input id="password" name="password" type="password" required maxlength="128" placeholder="Enter your password" autocomplete="off">' +
+      '<button type="button" id="eye" class="eye" aria-label="Show password" aria-pressed="false">' +
+        '<svg class="e-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>' +
+        '<svg class="e-off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.9 10.9 0 0 1 12 19c-7 0-11-7-11-7a19.8 19.8 0 0 1 5.06-5.94M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 7 11 7a19.7 19.7 0 0 1-3.17 4.19M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/></svg>' +
+      '</button>' +
+    '</div>' +
     (errorText ? '<div class="msg" role="alert">' + esc(errorText) + '</div>' : '') +
     '<button type="submit">Continue</button>' +
     '</form></div>';
@@ -93,14 +109,22 @@ try {
     var email = (raw ? ("" + raw) : "").replace(/^\s+|\s+$/g, "").toLowerCase();
     var valid = (email.length > 3 && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
 
+    var typedHash = ("" + Variable.GetValue("@pwHash")).toLowerCase();
+    var pwGiven = Request.GetFormField("password");
+    var denied = "Incorrect email or password. If you don't have access, please reach out to Vinod or Anmol from MCRM.";
+
     if (!valid) {
       errorText = "Please enter a valid email address.";
+    } else if (!pwGiven || ("" + pwGiven).length == 0) {
+      errorText = "Please enter your password.";
     } else {
-      var found = Platform.Function.Lookup(ACCESS_DE, ACCESS_FIELD, ACCESS_FIELD, email);
-      if (found && ("" + found).toLowerCase() == email) {
+      var foundEmail = Platform.Function.Lookup(ACCESS_DE, ACCESS_FIELD, ACCESS_FIELD, email);
+      var storedHash = Platform.Function.Lookup(ACCESS_DE, PASSWORD_FIELD, ACCESS_FIELD, email);
+      if (foundEmail && ("" + foundEmail).toLowerCase() == email &&
+          storedHash && ("" + storedHash).toLowerCase() == typedHash) {
         authorized = true;
       } else {
-        errorText = "You don't have access to this report. Please reach out to Vinod or Anmol from MCRM for access.";
+        errorText = denied;
       }
     }
   }
@@ -173,6 +197,13 @@ footer{margin-top:14px;font-size:12.5px;color:var(--muted)}
 .login .msg{margin-top:12px;font-size:13px;color:var(--danger);background:var(--danger-bg);border-radius:8px;padding:9px 12px}
 .login button{width:100%;margin-top:18px;font:inherit;font-size:15px;font-weight:500;color:#fff;background:var(--accent);border:0;border-radius:8px;padding:10px 12px;cursor:pointer}
 .login button:hover{filter:brightness(1.06)}
+.pwwrap{position:relative}
+.pwwrap input{padding-right:44px}
+.login button.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;min-height:0;margin:0;padding:0;background:transparent;color:var(--muted);border-radius:8px}
+.login button.eye:hover{filter:none;color:var(--text)}
+.eye .e-off{display:none}
+.eye.on .e-open{display:none}
+.eye.on .e-off{display:block}
 .login button{display:flex;align-items:center;justify-content:center;gap:8px;min-height:42px}
 .login button:disabled{opacity:.75;cursor:default}
 .btnspin{width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
@@ -202,8 +233,20 @@ footer{margin-top:14px;font-size:12.5px;color:var(--muted)}
   var form = document.getElementById("loginForm");
   if (form) {
     form.addEventListener("submit", function () {
-      var b = form.querySelector("button");
+      var b = form.querySelector('button[type="submit"]');
       if (b) { b.disabled = true; b.innerHTML = '<span class="btnspin"></span>Verifying'; }
+    });
+  }
+  var eye = document.getElementById("eye");
+  var pw = document.getElementById("password");
+  if (eye && pw) {
+    eye.addEventListener("click", function () {
+      var show = (pw.type === "password");
+      pw.type = show ? "text" : "password";
+      eye.classList.toggle("on", show);
+      eye.setAttribute("aria-pressed", show ? "true" : "false");
+      eye.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      pw.focus();
     });
   }
   var loader = document.getElementById("loader");
