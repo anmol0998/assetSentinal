@@ -1,0 +1,33 @@
+SELECT
+    CAST(
+        ISNULL(
+            (SELECT MAX(CAST(WeekNumber AS INT))
+             FROM [Prolia_Weekly_Counts_Consent_rows]), -1
+        ) + 1
+    AS VARCHAR(50)) AS WeekNumber,
+
+    SUM(CASE WHEN P.Consent_Record_Type = 'State Law only'  THEN 1 ELSE 0 END) AS stateLawonly,
+    SUM(CASE WHEN P.Consent_Record_Type = 'CM Service only' THEN 1 ELSE 0 END) AS cmServiceonly,
+    SUM(CASE WHEN P.Consent_Record_Type = 'Both'            THEN 1 ELSE 0 END) AS both,
+    SUM(CASE WHEN P.Consent_Record_Type = 'Neither'         THEN 1 ELSE 0 END) AS neither,
+    COUNT(*) AS total
+
+FROM (
+    SELECT
+        S.MDM_PAT_ID,
+        CASE
+            WHEN MAX(CASE WHEN UPPER(C.CONSENT_TYPE) = 'STATE LAW'  THEN 1 ELSE 0 END) = 1
+             AND MAX(CASE WHEN UPPER(C.CONSENT_TYPE) = 'CM_SERVICE' THEN 1 ELSE 0 END) = 1
+                THEN 'Both'
+            WHEN MAX(CASE WHEN UPPER(C.CONSENT_TYPE) = 'STATE LAW'  THEN 1 ELSE 0 END) = 1
+                THEN 'State Law only'
+            WHEN MAX(CASE WHEN UPPER(C.CONSENT_TYPE) = 'CM_SERVICE' THEN 1 ELSE 0 END) = 1
+                THEN 'CM Service only'
+            ELSE 'Neither'
+        END AS Consent_Record_Type
+    FROM [Prolia_current_week_Snapshots] AS S
+    LEFT JOIN [Global_CPM_Consents_DE_Master] AS C
+        ON S.MDM_PAT_ID = C.MDM_PAT_ID
+       AND UPPER(C.CONSENT_TYPE) IN ('STATE LAW', 'CM_SERVICE')
+    GROUP BY S.MDM_PAT_ID
+) AS P
